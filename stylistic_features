@@ -1,0 +1,93 @@
+#!/usr/bin/python3
+
+"""
+Stylistic feature extraction divided into separate blocks for easy ablation experiments
+Feature scaling necessary
+"""
+
+import logging
+import numpy as np
+import nltk
+from sklearn.base import BaseEstimator
+
+
+sentence_tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
+word_tokenizer = nltk.tokenize.RegexpTokenizer(r'\w+')
+
+
+class StyleVectorizer(BaseEstimator):
+    """Estimator that computes style based feature values from data"""
+    def __init__(self, featlist=['lex', 'punct', 'func']):
+        self.featlist = featlist
+        self.punct_list = [',', '-', ':'] # list of punctuation marks, extendable
+        self.fwords_list = ['and', 'but', 'if', 'that', 'very', 'much', 'not', 'so', 'the', 'to'] # list of function words, extendable
+
+    def fit(self, raw_documents, y=None):
+        return self
+
+    def transform(self, raw_documents):
+        return self.fit_transform(raw_documents)
+
+    def fit_transform(self, raw_documents, y=None):
+        feat_matrices = {}
+        if 'lex' in self.featlist:
+            fvs_lexical = np.zeros((len(raw_documents), 3), np.float64) # creates a null matrix of lexical features
+            feat_matrices['lex'] = fvs_lexical
+        if 'punct' in self.featlist:
+            fvs_punct = np.zeros((len(raw_documents), len(self.punct_list)), np.float64)   # creates a null matrix of punctuation marks features
+            feat_matrices['punct'] = fvs_punct
+        if 'func' in self.featlist:
+            fvs_fwords = np.zeros((len(raw_documents), 10), np.float64) # creates a null matrix of common function words
+            feat_matrices['func'] = fvs_fwords
+        for e, ch_text in enumerate(raw_documents):
+            words = word_tokenizer.tokenize(ch_text.lower())
+            tokens = nltk.word_tokenize(ch_text.lower())
+            sentences = sentence_tokenizer.tokenize(ch_text)
+            if 'lex' in self.featlist:
+                self.lexical_features(words, sentences, fvs_lexical, e)
+            if 'punct' in self.featlist:
+                self.punctuation_features(words, tokens, sentences, fvs_punct, e)
+            if 'func' in self.featlist:
+                self.function_words(words, tokens, sentences, fvs_fwords, e)
+
+        feats = np.hstack((feat_matrices[name] for name in sorted(self.featlist)))
+        return feats
+
+
+    def lexical_features(self, words, sentences, fvs_lexical, e): # computes general stylistic features
+        vocab = set(words)
+        words_per_sentence = np.array([len(word_tokenizer.tokenize(s)) for s in sentences])
+        # avoid NaNs by checking if there are any sentences
+        if len(sentences) == 0:
+            fvs_lexical[e, 0] = 0
+            fvs_lexical[e, 1] = 0
+        else:
+            fvs_lexical[e, 0] = words_per_sentence.mean() # average number of words per sentence
+            fvs_lexical[e, 1] = words_per_sentence.std() # sentence length variation
+        if len(words) == 0: l = 1
+        else: l = len(words)
+        fvs_lexical[e, 2] = len(vocab) / float(l) # lexical diversity
+
+
+    def punctuation_features(self, words, tokens, sentences, fvs_punct, e):  # computes punctuation marks frequency
+        if len(sentences) == 0: l = 1
+        else: l = len(sentences)
+        for i, p in enumerate(self.punct_list):
+            fvs_punct[e, i] = tokens.count(p) / float(l) # Commas etc. per sentence
+
+
+    def function_words(self, words, tokens, sentences, fvs_fwords, e): # computes function words frequency
+        if len(sentences) == 0: l = 1
+        else: l = len(sentences)
+        for i, fword in enumerate(self.fwords_list):
+            fvs_fwords[e, i] = tokens.count(fword) / float(l)
+
+
+if __name__ == "__main__":
+    text = ["In classical authorship attribution, we are given a closed set of candidate authors and are asked to identify which one of them is the author of an anonymous text.",
+        "Author profiling, on the other hand, distinguishes between classes of authors, rather than individual authors.",
+        "Thus, for example, profiling is used to determine an author's gender, age, native language, personality type, etc.",
+        "Author profiling is a problem of growing importance in a variety of areas, including forensics, security and marketing.",
+        "For instance, from a forensic linguistics perspective, being able to determine the linguistic profile of the author of a suspicious text solely by analyzing the text could be extremely valuable for evaluating suspects."]
+    test = StyleVectorizer(featlist=['lex', 'punct', 'func'])
+    print(test.fit_transform(text))
